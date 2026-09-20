@@ -134,30 +134,38 @@ class Live(commands.Cog):
                         continue
 
                     player_key = str(player.playerId)
+                    # First time we've ever tracked this player this week (bot just
+                    # started, or state was reset) -- there's no previous poll to
+                    # diff against, so seed the baseline silently instead of treating
+                    # every touchdown they already have as brand new (which would
+                    # also make their yardage-since-last-poll equal to their full
+                    # weekly total instead of a single play).
+                    first_sighting = player_key not in week_state
                     prev_stats = week_state.get(player_key, {})
 
-                    for stat_key, info in TD_STAT_INFO.items():
-                        count = player.breakdown.get(stat_key, 0)
-                        if count > prev_stats.get(stat_key, 0):
-                            yards = None
-                            yards_stat = info["yards_stat"]
-                            if yards_stat:
-                                # Box scores only expose weekly running totals, not
-                                # individual plays, so the yardage on this specific
-                                # score is estimated as the gain in that total yards
-                                # stat since the last poll. If a player had other
-                                # non-scoring plays of the same type in the same poll
-                                # window this will overstate the play's yardage.
-                                delta = player.breakdown.get(yards_stat, 0) - prev_stats.get(yards_stat, 0)
-                                if delta > 0:
-                                    yards = round(delta, 1)
+                    if not first_sighting:
+                        for stat_key, info in TD_STAT_INFO.items():
+                            count = player.breakdown.get(stat_key, 0)
+                            if count > prev_stats.get(stat_key, 0):
+                                yards = None
+                                yards_stat = info["yards_stat"]
+                                if yards_stat:
+                                    # Box scores only expose weekly running totals, not
+                                    # individual plays, so the yardage on this specific
+                                    # score is estimated as the gain in that total yards
+                                    # stat since the last poll. If a player had other
+                                    # non-scoring plays of the same type in the same poll
+                                    # window this will overstate the play's yardage.
+                                    delta = player.breakdown.get(yards_stat, 0) - prev_stats.get(yards_stat, 0)
+                                    if delta > 0:
+                                        yards = round(delta, 1)
 
-                            channel = channel or await self._channel()
-                            await channel.send(
-                                embed=formatting.build_touchdown_embed(
-                                    player.name, player.proTeam, fantasy_team_name, info["label"], yards
+                                channel = channel or await self._channel()
+                                await channel.send(
+                                    embed=formatting.build_touchdown_embed(
+                                        player.name, player.proTeam, fantasy_team_name, info["label"], yards
+                                    )
                                 )
-                            )
 
                     week_state[player_key] = {
                         k: player.breakdown.get(k, 0)
