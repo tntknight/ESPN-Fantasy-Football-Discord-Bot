@@ -17,6 +17,11 @@ def _bye_week_matchup(box_score) -> bool:
     return not box_score.away_team or not box_score.home_team
 
 
+# Mirrors live.py's BENCHED_SLOTS -- kept separate rather than imported to
+# avoid a formatting.py <-> cogs.live circular import.
+BENCHED_SLOTS = {"BE", "IR"}
+
+
 def build_recap_embed(week: int, box_scores: list) -> discord.Embed:
     embed = discord.Embed(
         title=f"Week {week} Recap",
@@ -25,6 +30,9 @@ def build_recap_embed(week: int, box_scores: list) -> discord.Embed:
 
     biggest_blowout = None
     closest_game = None
+    top_team = None
+    top_player = None
+    top_bench_player = None
     lines = []
 
     for bs in box_scores:
@@ -46,12 +54,35 @@ def build_recap_embed(week: int, box_scores: list) -> discord.Embed:
         if closest_game is None or margin < closest_game[0]:
             closest_game = (margin, f"{home} vs {away} (by {margin:.1f})")
 
+        for fantasy_team, score in ((bs.home_team, home_score), (bs.away_team, away_score)):
+            if top_team is None or score > top_team[0]:
+                top_team = (score, team_name(fantasy_team))
+
+        for fantasy_team, lineup in ((bs.home_team, bs.home_lineup), (bs.away_team, bs.away_lineup)):
+            for player in lineup:
+                if top_player is None or player.points > top_player[0]:
+                    top_player = (player.points, player.name, team_name(fantasy_team))
+                if player.slot_position in BENCHED_SLOTS:
+                    if top_bench_player is None or player.points > top_bench_player[0]:
+                        top_bench_player = (player.points, player.name, team_name(fantasy_team))
+
     embed.description = "\n".join(lines) if lines else "No matchups found for this week."
 
     if biggest_blowout:
         embed.add_field(name="Biggest Blowout", value=biggest_blowout[1], inline=True)
     if closest_game:
         embed.add_field(name="Closest Game", value=closest_game[1], inline=True)
+    if top_team:
+        score, name = top_team
+        embed.add_field(name="Highest Score", value=f"{name} ({score:.1f})", inline=True)
+    if top_player:
+        points, name, fantasy_team = top_player
+        embed.add_field(name="Top Performer", value=f"{name} ({fantasy_team}) — {points:.1f} pts", inline=True)
+    if top_bench_player:
+        points, name, fantasy_team = top_bench_player
+        embed.add_field(
+            name="Best Player on the Bench", value=f"{name} ({fantasy_team}) — {points:.1f} pts", inline=True
+        )
 
     return embed
 
