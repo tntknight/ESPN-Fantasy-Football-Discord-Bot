@@ -88,6 +88,54 @@ def build_preview_embed(week: int, box_scores: list) -> discord.Embed:
     return embed
 
 
+def build_live_scores_embed(week: int, box_scores: list) -> discord.Embed:
+    embed = discord.Embed(
+        title=f"Week {week} Live Scores",
+        color=BRAND_COLOR,
+    )
+    lines = []
+    for bs in box_scores:
+        if _bye_week_matchup(bs):
+            continue
+        home, away = team_name(bs.home_team), team_name(bs.away_team)
+        home_score, away_score = bs.home_score, bs.away_score
+        if home_score >= away_score:
+            line = f"**{home} {home_score:.1f}** – {away_score:.1f} {away}"
+        else:
+            line = f"{home} {home_score:.1f} – **{away_score:.1f} {away}**"
+        lines.append(line)
+    embed.description = "\n".join(lines) if lines else "No matchups found for this week."
+    return embed
+
+
+BIG_PLAY_YARDS = 50
+
+
+def build_touchdown_embed(
+    player_name: str, pro_team: str, fantasy_team_name: str, td_label: str, yards: float | None = None
+) -> discord.Embed:
+    yardage_text = f" for {yards:.0f} yards" if yards is not None else ""
+    big_play = yards is not None and yards > BIG_PLAY_YARDS
+
+    if big_play:
+        embed = discord.Embed(
+            title="🚨 HUGE TOUCHDOWN! 🚨",
+            description=(
+                f"**{player_name}** ({pro_team}) {td_label}{yardage_text}!!\n"
+                f"Rostered by **{fantasy_team_name}**"
+            ),
+            color=discord.Color.gold(),
+        )
+        embed.set_footer(text=f"{yards:.0f}-yard house call")
+    else:
+        embed = discord.Embed(
+            title="Touchdown!",
+            description=f"**{player_name}** ({pro_team}) {td_label}{yardage_text} — rostered by **{fantasy_team_name}**",
+            color=discord.Color.orange(),
+        )
+    return embed
+
+
 def build_lead_change_embed(home_name: str, away_name: str, home_score: float, away_score: float) -> discord.Embed:
     leader = home_name if home_score >= away_score else away_name
     embed = discord.Embed(

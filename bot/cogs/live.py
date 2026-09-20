@@ -29,6 +29,28 @@ def _matchup_key(week: int, index: int) -> str:
     return f"{week}:{index}"
 
 
+# Stat breakdown keys (already human-readable via espn_api's PLAYER_STATS_MAP)
+# that indicate a player was directly involved in scoring a touchdown, along
+# with the weekly-total yardage stat that pairs with each (used to estimate
+# yards on the scoring play -- see _check_touchdowns). Return/defensive TDs
+# have no single corresponding yardage stat, so those go out without a yard
+# count. defensivePlusSpecialTeamsTouchdowns is a rollup of D/ST's various TD
+# types, used instead of the individual defensive/return TD stats to avoid
+# double-counting a single score.
+TD_STAT_INFO = {
+    "passingTouchdowns": {"label": "threw a touchdown", "yards_stat": "passingYards"},
+    "rushingTouchdowns": {"label": "rushed for a touchdown", "yards_stat": "rushingYards"},
+    "receivingTouchdowns": {"label": "caught a touchdown", "yards_stat": "receivingYards"},
+    "fumbleRecoveredForTD": {"label": "recovered a fumble for a touchdown", "yards_stat": None},
+    "defensivePlusSpecialTeamsTouchdowns": {
+        "label": "scored a defensive/special teams touchdown",
+        "yards_stat": None,
+    },
+}
+
+BENCHED_SLOTS = {"BE", "IR"}
+
+
 class Live(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -95,12 +117,64 @@ class Live(commands.Cog):
         live_state[str(week)] = week_state
         self.state.set("live", live_state)
 
+    async def _check_touchdowns(self, week: int):
+        td_state = self.state.get("touchdowns", {})
+        week_state = td_state.get(str(week), {})
+        box_scores = self.espn.box_scores(week)
+        channel = None
+
+        for bs in box_scores:
+            for team, lineup in ((bs.home_team, bs.home_lineup), (bs.away_team, bs.away_lineup)):
+                if not team:
+                    continue
+                fantasy_team_name = formatting.team_name(team)
+
+                for player in lineup:
+                    if player.slot_position in BENCHED_SLOTS:
+                        continue
+
+                    player_key = str(player.playerId)
+                    prev_stats = week_state.get(player_key, {})
+
+                    for stat_key, info in TD_STAT_INFO.items():
+                        count = player.breakdown.get(stat_key, 0)
+                        if count > prev_stats.get(stat_key, 0):
+                            yards = None
+                            yards_stat = info["yards_stat"]
+                            if yards_stat:
+                                # Box scores only expose weekly running totals, not
+                                # individual plays, so the yardage on this specific
+                                # score is estimated as the gain in that total yards
+                                # stat since the last poll. If a player had other
+                                # non-scoring plays of the same type in the same poll
+                                # window this will overstate the play's yardage.
+                                delta = player.breakdown.get(yards_stat, 0) - prev_stats.get(yards_stat, 0)
+                                if delta > 0:
+                                    yards = round(delta, 1)
+
+                            channel = channel or await self._channel()
+                            await channel.send(
+                                embed=formatting.build_touchdown_embed(
+                                    player.name, player.proTeam, fantasy_team_name, info["label"], yards
+                                )
+                            )
+
+                    week_state[player_key] = {
+                        k: player.breakdown.get(k, 0)
+                        for k in list(TD_STAT_INFO) + [i["yards_stat"] for i in TD_STAT_INFO.values() if i["yards_stat"]]
+                    }
+
+        td_state[str(week)] = week_state
+        self.state.set("touchdowns", td_state)
+
     @tasks.loop(minutes=15)
     async def check_live(self):
         if not self._in_game_window():
             return
         try:
-            await self._check_week(self.espn.current_week())
+            week = self.espn.current_week()
+            await self._check_week(week)
+            await self._check_touchdowns(week)
         except Exception:
             log.exception("Live score poll failed")
 
@@ -108,12 +182,25 @@ class Live(commands.Cog):
     async def before_check_live(self):
         await self.bot.wait_until_ready()
 
+    @app_commands.command(name="scores", description="Show live scores for all of this week's games")
+    async def scores_command(self, interaction: discord.Interaction):
+        await interaction.response.defer(thinking=True)
+        try:
+            week = self.espn.current_week()
+            embed = formatting.build_live_scores_embed(week, self.espn.box_scores(week))
+            await interaction.followup.send(embed=embed)
+        except Exception as e:
+            log.exception("Scores command failed")
+            await interaction.followup.send(f"Failed to fetch live scores: {e}", ephemeral=True)
+
     @app_commands.command(name="live", description="Force a live-score check right now, ignoring the game-window schedule")
     async def live_command(self, interaction: discord.Interaction):
         await interaction.response.defer(thinking=True, ephemeral=True)
         try:
-            await self._check_week(self.espn.current_week())
-            await interaction.followup.send("Checked for lead changes / close games.", ephemeral=True)
+            week = self.espn.current_week()
+            await self._check_week(week)
+            await self._check_touchdowns(week)
+            await interaction.followup.send("Checked for lead changes / close games / touchdowns.", ephemeral=True)
         except Exception as e:
             log.exception("Manual live command failed")
             await interaction.followup.send(f"Failed to check live scores: {e}", ephemeral=True)
