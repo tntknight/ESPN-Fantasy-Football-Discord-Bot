@@ -1,0 +1,4 @@
+discord.py>=2.3.2
+espn_api>=0.40.0
+python-dotenv>=1.0.0
+tzdata>=2024.1
