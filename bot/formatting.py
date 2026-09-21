@@ -139,32 +139,12 @@ def build_live_scores_embed(week: int, box_scores: list) -> discord.Embed:
     return embed
 
 
-BIG_PLAY_YARDS = 50
-
-
-def build_touchdown_embed(
-    player_name: str, pro_team: str, fantasy_team_name: str, td_label: str, yards: float | None = None
-) -> discord.Embed:
-    yardage_text = f" for {yards:.0f} yards" if yards is not None else ""
-    big_play = yards is not None and yards > BIG_PLAY_YARDS
-
-    if big_play:
-        embed = discord.Embed(
-            title="🚨 HUGE TOUCHDOWN! 🚨",
-            description=(
-                f"**{player_name}** ({pro_team}) {td_label}{yardage_text}!!\n"
-                f"Rostered by **{fantasy_team_name}**"
-            ),
-            color=discord.Color.gold(),
-        )
-        embed.set_footer(text=f"{yards:.0f}-yard house call")
-    else:
-        embed = discord.Embed(
-            title="Touchdown!",
-            description=f"**{player_name}** ({pro_team}) {td_label}{yardage_text} — rostered by **{fantasy_team_name}**",
-            color=discord.Color.orange(),
-        )
-    return embed
+def build_touchdown_embed(player_name: str, pro_team: str, fantasy_team_name: str, td_label: str) -> discord.Embed:
+    return discord.Embed(
+        title="Touchdown!",
+        description=f"**{player_name}** ({pro_team}) {td_label} — rostered by **{fantasy_team_name}**",
+        color=discord.Color.orange(),
+    )
 
 
 def build_lead_change_embed(home_name: str, away_name: str, home_score: float, away_score: float) -> discord.Embed:
