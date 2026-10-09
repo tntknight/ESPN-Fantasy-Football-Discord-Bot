@@ -112,6 +112,7 @@ class Live(commands.Cog):
         self.state.set("live", live_state)
 
     async def _check_touchdowns(self, week: int):
+        alerts_enabled = self.state.get("touchdown_alerts_enabled", True)
         td_state = self.state.get("touchdowns", {})
         week_state = td_state.get(str(week), {})
         box_scores = self.espn.box_scores(week)
@@ -137,7 +138,7 @@ class Live(commands.Cog):
                     first_sighting = player_key not in week_state
                     prev_stats = week_state.get(player_key, {})
 
-                    if not first_sighting:
+                    if not first_sighting and alerts_enabled:
                         for stat_key, info in TD_STAT_INFO.items():
                             count = player.breakdown.get(stat_key, 0)
                             if count > prev_stats.get(stat_key, 0):
@@ -190,6 +191,21 @@ class Live(commands.Cog):
         except Exception as e:
             log.exception("Manual live command failed")
             await interaction.followup.send(f"Failed to check live scores: {e}", ephemeral=True)
+
+    @app_commands.command(name="touchdowns", description="Turn touchdown alerts on or off")
+    @app_commands.default_permissions(manage_guild=True)
+    @app_commands.choices(
+        enabled=[
+            app_commands.Choice(name="on", value="on"),
+            app_commands.Choice(name="off", value="off"),
+        ]
+    )
+    async def touchdowns_command(self, interaction: discord.Interaction, enabled: app_commands.Choice[str]):
+        is_enabled = enabled.value == "on"
+        self.state.set("touchdown_alerts_enabled", is_enabled)
+        await interaction.response.send_message(
+            f"Touchdown alerts are now **{'on' if is_enabled else 'off'}**.", ephemeral=True
+        )
 
 
 async def setup(bot: commands.Bot):
